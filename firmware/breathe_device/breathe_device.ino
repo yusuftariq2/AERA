@@ -22,7 +22,7 @@
 // ---------------- Settings ----------------
 // true  = connect to WiFi + AWS IoT Core (normal mode)
 // false = no WiFi/AWS. JSON lines only go to USB Serial; run tools/serial_bridge.py on a laptop
-#define USE_AWS false
+#define USE_AWS true
 
 #define I2C_SDA     21
 #define I2C_SCL     22
@@ -161,6 +161,8 @@ bool reconnectAws() {
     return true;
   }
   Serial.printf("failed, state=%d\n", mqtt.state());
+    char tlsErr[120]; int tlsCode = net.lastError(tlsErr, sizeof(tlsErr));
+  Serial.printf("  TLS error %d: %s\n", tlsCode, tlsErr);
   Serial.println("  -2 = network/TLS: check AWS_IOT_ENDPOINT, the 3 certificates, and that the policy is attached");
   Serial.println("   5 = not authorized: check the IoT policy allows iot:Connect");
   return false;
