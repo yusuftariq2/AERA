@@ -22,7 +22,7 @@
 // ---------------- Settings ----------------
 // true  = connect to WiFi + AWS IoT Core (normal mode)
 // false = no WiFi/AWS. JSON lines only go to USB Serial; run tools/serial_bridge.py on a laptop
-#define USE_AWS true
+#define USE_AWS false
 
 #define I2C_SDA     21
 #define I2C_SCL     22

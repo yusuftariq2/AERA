@@ -13,6 +13,7 @@ Setup (C's laptop):
 
 Run:
   python wristband.py --mock    # no AWS needed: cycles colors, prints button presses
+  python wristband.py --mock --led-chip none   # buttons only, skip LEDs
   python wristband.py --api https://abc123.execute-api.us-east-1.amazonaws.com \
                       --endpoint xxxx-ats.iot.us-east-1.amazonaws.com
 
@@ -27,6 +28,7 @@ import time
 import boto3
 import requests
 from freewili import FreeWili
+from freewili.types import FreeWiliProcessorType
 
 NUM_LEDS = 7  # board LEDs 0-6
 COLORS = {
@@ -41,6 +43,8 @@ IGNORE_BUTTONS = {"RED", "UNKNOWN"}  # buttons are WHITE, YELLOW, GREEN, BLUE, R
 POLL_SECONDS = 3.0
 BUTTON_CHECK_SECONDS = 0.1
 PUFF_COOLDOWN_SECONDS = 2.0
+LED_CHIP = FreeWiliProcessorType.Display     # set by --led-chip (None = no LEDs)
+BUTTON_CHIP = FreeWiliProcessorType.Main     # set by --button-chip
 
 
 def unwrap(value, what):
@@ -53,18 +57,25 @@ def unwrap(value, what):
 
 
 def set_color(device, name):
+    """Set all board LEDs. Returns False (and stops early) if the FREE-WILi doesn't answer."""
+    if LED_CHIP is None:
+        return False
     r, g, b = COLORS.get(name, COLORS["unknown"])
     for led in range(NUM_LEDS):
         try:
-            device.set_board_leds(led, r, g, b)
-        except Exception as exc:  # one bad LED call shouldn't stop the loop
+            res = device.set_board_leds(led, r, g, b, processor=LED_CHIP)
+        except Exception as exc:
             print("LED error:", exc)
-            return
+            return False
+        if hasattr(res, "is_err") and res.is_err():
+            print("LED error:", getattr(res, "err_value", res))
+            return False
+    return True
 
 
 def newly_pressed(device, previous):
     """Return names of buttons that went from released to pressed since the last check."""
-    states = unwrap(device.read_all_buttons(), "read_all_buttons")
+    states = unwrap(device.read_all_buttons(processor=BUTTON_CHIP), "read_all_buttons")
     pressed = []
     for color, state in states.items():
         name = str(getattr(color, "name", color)).upper()
@@ -92,7 +103,15 @@ def main():
     parser.add_argument("--device", default=os.environ.get("BREATHE_DEVICE_ID", "kid-001"))
     parser.add_argument("--region", default=os.environ.get("AWS_REGION", "us-east-1"))
     parser.add_argument("--mock", action="store_true", help="test the FREE-WILi without AWS")
+    parser.add_argument("--led-chip", choices=["display", "main", "none"], default="display",
+                        help="chip for the LED command (see fw_check.py); 'none' skips LEDs")
+    parser.add_argument("--button-chip", choices=["display", "main"], default="main",
+                        help="chip for reading buttons (see fw_check.py)")
     args = parser.parse_args()
+    global LED_CHIP, BUTTON_CHIP
+    chips = {"display": FreeWiliProcessorType.Display, "main": FreeWiliProcessorType.Main, "none": None}
+    LED_CHIP = chips[args.led_chip]
+    BUTTON_CHIP = chips[args.button_chip]
     api_url = args.api.rstrip("/")
 
     if not args.mock and (not api_url or not args.endpoint):
@@ -116,8 +135,25 @@ def main():
     last_poll = 0.0
     last_puff = 0.0
 
+    leds_ok = False
     try:
-        set_color(device, "white")
+        if LED_CHIP is None:
+            print("LEDs off (--led-chip none). Risk shows in this window only.")
+        else:
+            print(f"Testing LEDs on {LED_CHIP.name} chip (should flash white)...")
+            started = time.time()
+            leds_ok = set_color(device, "white")
+            if leds_ok:
+                print(f"LEDs OK ({time.time() - started:.1f} s).")
+            else:
+                print("LEDs didn't answer, so continuing WITHOUT LEDs (risk shows in this window).\n"
+                      "Ask the FREE-WILi team to update the display firmware to fix the LEDs.")
+        started = time.time()
+        try:
+            unwrap(device.read_all_buttons(processor=BUTTON_CHIP), "read_all_buttons")
+            print(f"Buttons OK on {BUTTON_CHIP.name} chip ({time.time() - started:.1f} s). Running. Press Ctrl+C to stop.")
+        except Exception as exc:
+            print(f"Button read failed on {BUTTON_CHIP.name} chip: {exc}")
         time.sleep(0.5)
         while True:
             now = time.time()
@@ -128,7 +164,8 @@ def main():
                 if new_risk != risk:
                     print(f"Risk: {new_risk}")
                     risk = new_risk
-                set_color(device, risk)
+                if leds_ok:
+                    set_color(device, risk)
 
             try:
                 pressed = newly_pressed(device, previous_buttons)
@@ -145,19 +182,26 @@ def main():
                         iot.publish(topic=f"breathe/{args.device}/puff", qos=1, payload=json.dumps(payload))
                     except Exception as exc:
                         print("Publish failed:", exc)
-                for _ in range(2):  # flash white to confirm
-                    set_color(device, "white")
-                    time.sleep(0.15)
-                    set_color(device, "off")
-                    time.sleep(0.15)
-                set_color(device, risk)
+                if leds_ok:
+                    for _ in range(2):  # flash white to confirm
+                        set_color(device, "white")
+                        time.sleep(0.15)
+                        set_color(device, "off")
+                        time.sleep(0.15)
+                    set_color(device, risk)
 
             time.sleep(BUTTON_CHECK_SECONDS)
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:
-        set_color(device, "off")
-        device.close()
+        # Only touch the LEDs on the way out if they were answering; otherwise exit right away.
+        if leds_ok:
+            set_color(device, "off")
+        try:
+            device.close(restore_menu=leds_ok)
+        except Exception:
+            pass
+        os._exit(0)  # don't wait on the library's background threads
 
 
 if __name__ == "__main__":
