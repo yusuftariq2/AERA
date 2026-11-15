@@ -5,7 +5,7 @@ import "./App.css";
 // With no API URL, the dashboard runs on fake data so you can build the UI right away.
 const API = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 const DEVICE_ID = import.meta.env.VITE_DEVICE_ID || "kid-001";
-const POLL_MS = 3000;
+const POLL_MS = 1500;
 const MOCK = !API;
 
 const TVOC_YELLOW = 220;

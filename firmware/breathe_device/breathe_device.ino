@@ -32,7 +32,7 @@
 #define LED_YELLOW  19
 #define LED_RED     23
 
-const unsigned long PUBLISH_EVERY_MS = 5000;  // one reading every 5 s
+const unsigned long PUBLISH_EVERY_MS = 2000;  // one reading every 5 s
 const unsigned long PUFF_COOLDOWN_MS = 2000;  // ignore repeat touches for 2 s
 const int   TVOC_YELLOW   = 220;              // ppb, keep in sync with the Risk Lambda
 const int   TVOC_RED      = 661;              // ppb (red = above 660)
