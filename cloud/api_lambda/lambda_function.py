@@ -69,6 +69,7 @@ def kid_summary(state):
         "latest": state.get("latest", {}),
         "puffs24h": len(puffs),
         "lastPuffMs": max(puffs) if puffs else None,
+        "lastPuffDurationMs": state.get("lastPuffDurationMs"),
         "updatedMs": updated,
         "online": now - updated < ONLINE_WINDOW_MS,
     }
@@ -121,20 +122,26 @@ def summarize(device_id):
         "voc_bands_ppb": "green under 220, yellow 220-660, red above 660",
     }
     prompt = (
-        "You write short, friendly updates for the parent of a child with asthma in Detroit. "
-        "Using ONLY the data below, write 3 short sentences: how the indoor air has been, "
-        "any pattern with inhaler use, and one practical tip (for example ventilation or avoiding sprays). "
-        "Do not diagnose or give medical advice. If inhaler use is frequent, suggest checking in with "
-        "the child's doctor.\n\nData: " + json.dumps(facts)
+        "Write a 3-sentence air quality update for a parent dashboard, using ONLY the data below. "
+        "Sentence 1: how the indoor air has been. Sentence 2: any pattern with inhaler puffs. "
+        "Sentence 3: one practical tip (for example open a window, run a fan, avoid sprays). "
+        "This is NOT a letter or email: no greeting, no 'Dear', no sign-off, no 'Best', no names, "
+        "no placeholders like [Your Name]. Output only the 3 sentences. "
+        "Do not diagnose or give medical advice.\n\nData: " + json.dumps(facts)
     )
     bedrock = boto3.client("bedrock-runtime")
     resp = bedrock.converse(
         modelId=MODEL_ID,
+        system=[{"text": "You output only the requested sentences. Never write greetings or sign-offs."}],
         messages=[{"role": "user", "content": [{"text": prompt}]}],
-        inferenceConfig={"maxTokens": 250, "temperature": 0.3},
+        inferenceConfig={"maxTokens": 200, "temperature": 0.2},
     )
     text = resp["output"]["message"]["content"][0]["text"]
-    return {"summary": text.strip()}
+    # Safety net: drop any letter-style lines the model still adds.
+    bad = ("dear", "hi ", "hello", "best", "sincerely", "regards", "warm", "cheers", "[", "your name")
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    lines = [l for l in lines if not l.lower().startswith(bad)]
+    return {"summary": " ".join(lines)}
 
 
 def lambda_handler(event, context):

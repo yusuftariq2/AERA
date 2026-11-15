@@ -386,8 +386,8 @@ export default function App() {
           <div className="brand">
             <div className="logo" aria-hidden="true"><span /></div>
             <div>
-              <h1>Breathe<span>Detroit</span></h1>
-              <p className="tagline">Asthma-trigger monitoring for kids</p>
+              <h1>AERA</h1>
+              <p className="tagline">Awareness in Every Breath</p>
             </div>
           </div>
           <nav className="seg">
@@ -397,7 +397,7 @@ export default function App() {
         </header>
         {MOCK && <div className="warn">Demo mode: fake data. Set VITE_API_URL to use the real API.</div>}
         {view === "parent" ? <ParentView onRisk={setRisk} onPuff={onPuff} /> : <NurseView onRisk={setRisk} />}
-        <footer>Monitors asthma triggers and alerts caregivers. Not a medical device.</footer>
+        <footer>AERA · environmental awareness and simulated inhaler-use tracking. Not a medical device.</footer>
       </div>
     </>
   );
