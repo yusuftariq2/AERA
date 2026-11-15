@@ -20,13 +20,13 @@
 const char* API_URL = "https://7xd4mqiish.execute-api.us-east-2.amazonaws.com";
 const int WATCH_RX_PIN = 17;           // verified tonight: BottleNose <-> FREE-WILi works on 16/17
 const int WATCH_TX_PIN = 16;
-const uint32_t POLL_MS = 3000;         // fetch from AWS
-const uint32_t TEXT_MS = 500;          // send a burst of the risk word twice a second
+const uint32_t POLL_MS = 5000;         // fetch from AWS (each fetch blanks the screen ~1 s, so not too often)
+const uint32_t TEXT_MS = 400;          // send a burst of the risk word ~2.5x a second
 const int BURST = 6;                   // text only rendered when commands arrived back-to-back
 const bool USE_LEDS = false;          // LED commands come back "Invalid" over the wire on OG fw 024, so text only
 const int NUM_LEDS = 7;
 const int LED_HOLD_MS = 8000;          // LEDs stay lit this long (8000 is known to work; 60000 was rejected)
-const uint32_t LED_REFRESH_MS = 6000;  // re-send before the 8 s hold runs out
+const uint32_t LED_REFRESH_MS = 5000;  // re-send the LED bar this often (each LED holds 8 s)
 const int CMD_GAP_MS = 30;             // pause between commands so the watch can keep up
 const uint32_t LED_STEP_MS = 400;      // send one LED at a time, this far apart
 
@@ -132,6 +132,25 @@ void showPage(bool force) {
   const char* air = g_risk == 0 ? "GOOD" : g_risk == 1 ? "FAIR" : g_risk == 2 ? "BAD!" : "WAIT";
   // Text only stays up when commands arrive back-to-back, so send the same word in a burst.
   for (int i = 0; i < BURST; i++) watchTextFast(air);
+  // LED bar: works over the wire when sent in a burst (tested: "g\\s i r g b 8000 0" lit).
+  // Each LED holds 8 s, so re-send when the bar changes or every LED_REFRESH_MS.
+  int r, g, b;
+  riskRgb(g_risk, r, g, b);
+  int lit = constrain((g_tvoc * NUM_LEDS + 500) / 1000, 1, NUM_LEDS);
+  if (g_risk == 3) lit = 1;
+  if (g_risk != lastLedRisk || lit != lastLedLit || millis() - lastLedSent > LED_REFRESH_MS) {
+    lastLedRisk = g_risk; lastLedLit = lit; lastLedSent = millis();
+    for (int i = 0; i < NUM_LEDS; i++) {
+      String line = "g\\s " + String(i) + " " + (i < lit ? String(r) + " " + String(g) + " " + String(b)
+                                                         : String("0 0 0")) + " 8000 0";
+      for (int k = 0; k < 2; k++) {        // twice, back-to-back
+        watchByte(0x02);
+        for (size_t j = 0; j < line.length(); j++) watchByte((uint8_t)line[j]);
+        watchByte('\n');
+      }
+    }
+    for (int i = 0; i < 3; i++) watchTextFast(air);   // put the word back on top
+  }
 }
 
 // ---------- WiFi + AWS ----------
@@ -205,7 +224,10 @@ void loop() {
   while (Watch.available()) Watch.read();   // ignore anything the watch sends
   if (WiFi.status() == WL_CONNECTED && millis() - lastPoll > POLL_MS) {
     lastPoll = millis();
+    showPage(true);      // burst right before the slow fetch...
     pollStatus();
+    showPage(true);      // ...and right after, so the screen never sits empty
+    lastText = millis();
   }
   if (millis() - lastText > TEXT_MS && ledQueue >= NUM_LEDS) {   // re-send the word so it stays up
     lastText = millis();
