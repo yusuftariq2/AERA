@@ -37,6 +37,9 @@ volatile int g_tvoc = 0;
 volatile int g_puffs = 0;
 volatile bool g_haveData = false;
 volatile int g_statusCode = 0;          // 0 = ok/starting, else HTTP error
+volatile int g_lastPuffHeldMs = 0;      // hold time of the latest puff
+volatile bool g_newPuff = false;        // set when the puff count goes up
+uint32_t puffShowUntil = 0, puffStart = 0;
 
 // ---------- sending to the watch (main loop only) ----------
 void watchByte(uint8_t c) {
@@ -70,7 +73,19 @@ void riskRgb(int risk, int& r, int& g, int& b) {
   else                { r = 0;  g = 0;  b = 40; }
 }
 
+// While a new puff is showing: "PUFF!" for 2 s, then the hold time (e.g. "1.2S") for 2 s.
+char puffText[8];
+const char* puffWord() {
+  uint32_t t = millis() - puffStart;
+  if (t < 2000) return "PUFF!";
+  int tenths = (g_lastPuffHeldMs + 50) / 100;
+  if (tenths <= 0) return "PUFF!";
+  snprintf(puffText, sizeof puffText, "%d.%dS", tenths / 10, tenths % 10);
+  return puffText;
+}
+
 const char* screenWord() {
+  if (puffShowUntil && millis() < puffShowUntil) return puffWord();
   if (WiFi.status() != WL_CONNECTED) return "NOWIFI";
   if (!g_haveData) return g_statusCode ? "API" : "WIFI..";
   int risk = g_risk;
@@ -129,6 +144,7 @@ void pollStatus() {
   filter["online"] = true;
   filter["puffs24h"] = true;
   filter["latest"]["tvoc"] = true;
+  filter["lastPuffDurationMs"] = true;
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
   http.end();
@@ -137,7 +153,12 @@ void pollStatus() {
   bool online = doc["online"] | true;
   g_risk = riskCode(doc["risk"] | "", online);
   g_tvoc = doc["latest"]["tvoc"] | 0;
-  g_puffs = doc["puffs24h"] | 0;
+  int puffs = doc["puffs24h"] | 0;
+  if (g_haveData && puffs > g_puffs) {           // a new puff since last check
+    g_lastPuffHeldMs = doc["lastPuffDurationMs"] | 0;
+    g_newPuff = true;
+  }
+  g_puffs = puffs;
   g_statusCode = 0;
   g_haveData = true;
   Serial.printf("risk=%d tvoc=%d puffs=%d\n", (int)g_risk, (int)g_tvoc, (int)g_puffs);
@@ -168,6 +189,16 @@ void loop() {
     if (millis() - lastTry > 10000) { lastTry = millis(); WiFi.reconnect(); }
   }
   while (Watch.available()) Watch.read();       // ignore anything the watch sends
+  if (g_newPuff) {                              // new puff: flash LEDs white, show PUFF! + hold time
+    g_newPuff = false;
+    puffStart = millis();
+    puffShowUntil = puffStart + 4000;
+    const char* w = puffWord();
+    for (int i = 0; i < 4; i++) watchText(w);
+    for (int i = 0; i < NUM_LEDS; i++) sendLed(i, true, 40, 40, 40, 2);
+    lastLedSent = 0;                            // repaint the risk bar right after
+    lastLedRisk = -1;
+  }
   updateLedsIfNeeded();
   const char* word = screenWord();
   for (int i = 0; i < BURST; i++) watchText(word);   // short burst keeps the text up

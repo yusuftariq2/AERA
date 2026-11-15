@@ -5,7 +5,7 @@ import "./App.css";
 // With no API URL, the dashboard runs on fake data so you can build the UI right away.
 const API = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 const DEVICE_ID = import.meta.env.VITE_DEVICE_ID || "kid-001";
-const POLL_MS = 1500;
+const POLL_MS = 3000;
 const MOCK = !API;
 
 const TVOC_YELLOW = 220;
@@ -151,6 +151,11 @@ function ParentView() {
         <Metric label="Temperature" value={tempF} unit="°F" />
         <Metric label="Humidity" value={l.humidity} unit="%" />
         <Metric label="Inhaler puffs (24 h)" value={data.puffs24h} unit="" />
+        <Metric
+          label={data.lastPuffMs ? `Last puff hold · ${new Date(data.lastPuffMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Last puff hold"}
+          value={data.lastPuffDurationMs != null ? (data.lastPuffDurationMs / 1000).toFixed(1) : null}
+          unit=" s"
+        />
       </section>
 
       <section className="panel">

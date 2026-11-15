@@ -32,7 +32,7 @@
 #define LED_YELLOW  19
 #define LED_RED     23
 
-const unsigned long PUBLISH_EVERY_MS = 2000;  // one reading every 5 s
+const unsigned long PUBLISH_EVERY_MS = 5000;  // one reading every 5 s
 const unsigned long PUFF_COOLDOWN_MS = 2000;  // ignore repeat touches for 2 s
 const int   TVOC_YELLOW   = 220;              // ppb, keep in sync with the Risk Lambda
 const int   TVOC_RED      = 661;              // ppb (red = above 660)
@@ -57,6 +57,7 @@ unsigned long lastPublish = 0;
 unsigned long lastPuff = 0;
 unsigned long lastAwsAttempt = 0;
 int lastTouch = LOW;
+unsigned long touchStart = 0;
 int currentRisk = 0;
 
 // ---------------- LEDs ----------------
@@ -161,8 +162,6 @@ bool reconnectAws() {
     return true;
   }
   Serial.printf("failed, state=%d\n", mqtt.state());
-    char tlsErr[120]; int tlsCode = net.lastError(tlsErr, sizeof(tlsErr));
-  Serial.printf("  TLS error %d: %s\n", tlsCode, tlsErr);
   Serial.println("  -2 = network/TLS: check AWS_IOT_ENDPOINT, the 3 certificates, and that the policy is attached");
   Serial.println("   5 = not authorized: check the IoT policy allows iot:Connect");
   return false;
@@ -199,12 +198,13 @@ void publishTelemetry() {
   sendJson(doc, telemetryTopic);
 }
 
-void publishPuff() {
+void publishPuff(unsigned long heldMs) {
   JsonDocument doc;
   doc["deviceId"] = DEVICE_ID;
   doc["ts"] = (long)time(nullptr);
   doc["event"] = "puff";
   doc["source"] = "touchpad";
+  doc["durationMs"] = heldMs;          // how long the pad was held
   sendJson(doc, puffTopic);
 }
 
@@ -253,13 +253,18 @@ void loop() {
 
   readCCS();
 
-  // Inhaler touch pad: count one puff on each LOW -> HIGH change, then wait 2 s
+  // Inhaler touch pad: start timing on touch, log the puff (with hold time) on release
   int touch = digitalRead(TOUCH_PIN);
-  if (touch == HIGH && lastTouch == LOW && millis() - lastPuff > PUFF_COOLDOWN_MS) {
-    lastPuff = millis();
-    Serial.println("Puff logged");
-    publishPuff();
-    flashLeds();
+  if (touch == HIGH && lastTouch == LOW) touchStart = millis();
+  if (touch == LOW && lastTouch == HIGH) {
+    unsigned long held = millis() - touchStart;
+    if (held >= 80 && millis() - lastPuff > PUFF_COOLDOWN_MS) {   // ignore glitches and double taps
+      if (held > 30000) held = 30000;
+      lastPuff = millis();
+      Serial.printf("Puff logged, held %lu ms\n", held);
+      publishPuff(held);
+      flashLeds();
+    }
   }
   lastTouch = touch;
 
