@@ -1,4 +1,4 @@
-# BreatheDetroit
+# AERA
 
 A $40 bedside air monitor and a FREE-WILi wristband that warn parents of Detroit kids with asthma before a bad day, log inhaler use, and show school nurses who's at risk. Built on AWS IoT Core, Lambda, DynamoDB, SNS, API Gateway, Amplify and Bedrock.
 
